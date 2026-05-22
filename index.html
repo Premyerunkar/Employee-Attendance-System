@@ -68,35 +68,25 @@
 
         // 1. NFC Hardware Scanner Execution Loop
         activateBtn.addEventListener('click', async () => {
-            if ('NDEFReader' in window) {
-                try {
-                    const ndef = new NDEFReader();
-                    await ndef.scan();
-                    
-                    updateTerminalUI("Waiting for Card Tap...", "bg-blue-950/40", "border-blue-500/50", "text-blue-400");
-                    activateBtn.style.display = 'none';
+    if ('NDEFReader' in window) {
+        try {
+            const ndef = new NDEFReader();
+            // This line triggers the browser's native permission prompt alert!
+            await ndef.scan(); 
+            
+            updateTerminalUI("Waiting for Card Tap...", "bg-blue-950/40", "border-blue-500/50", "text-blue-400");
+            activateBtn.style.display = 'none';
+            
+            // ... rest of your reader listener code stays same ...
 
-                    ndef.addEventListener("reading", async ({ serialNumber }) => {
-                        updateTerminalUI(`Processing: ${serialNumber}`, "bg-yellow-950/40", "border-yellow-500/50", "text-yellow-400");
-                        
-                        const { error } = await supabase.rpc('record_nfc_tap', { card_uid: serialNumber });
-
-                        if (error) {
-                            updateTerminalUI(`Error: ${error.message}`, "bg-red-950/40", "border-red-500/50", "text-red-400");
-                        } else {
-                            updateTerminalUI("✅ Tap Registered!", "bg-emerald-950/40", "border-emerald-500/50", "text-emerald-400");
-                            triggerBeep();
-                            fetchTodayLedger(); 
-                        }
-                        
-                        setTimeout(() => {
-                            updateTerminalUI("Ready for next employee...", "bg-blue-950/20", "border-blue-500/30", "text-blue-400");
-                        }, 2500);
-                    });
-
-                } catch (err) { alert(`Antenna failed: ${err}`); }
-            } else { alert("NFC API not supported. Use Google Chrome on an Android mobile device."); }
-        });
+        } catch (err) { 
+            // THIS WILL POP UP AND TELL US THE EXACT REASON IN PLAIN ENGLISH
+            alert(`CRITICAL ERROR: Antenna failed to initialize. Reason: ${err.message}`); 
+        }
+    } else { 
+        alert("CRITICAL ERROR: Your browser completely blocks NDEFReader. Check HTTPS or chrome://flags."); 
+    }
+});
 
         // 2. Fetch data records and display neatly inside the Admin Table grid
         async function fetchTodayLedger() {
