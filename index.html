@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise Attendance & Shift Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.42.0/dist/umd/supabase.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-950 text-white min-h-screen font-sans p-6">
@@ -26,112 +26,118 @@
             </button>
         </div>
 
-        <div class="md:col-span-2 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
-            <div class="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
-                <h2 class="text-xl font-bold text-emerald-400">Live Attendance Ledger</h2>
-                <span class="bg-gray-800 text-xs px-2.5 py-1 rounded-full text-gray-400 font-mono">Today's Logs</span>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead>
-                        <tr class="text-gray-500 border-b border-gray-800 uppercase text-[11px] tracking-wider">
-                            <th class="py-3 px-4">Employee</th>
-                            <th class="py-3 px-4">Code</th>
-                            <th class="py-3 px-4">Punch In</th>
-                            <th class="py-3 px-4">Punch Out</th>
-                            <th class="py-3 px-4">Hours</th>
-                            <th class="py-3 px-4 text-right">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ledger-rows" class="divide-y divide-gray-800/50">
-                        <tr id="empty-state"><td colspan="6" class="text-center py-8 text-gray-600">No taps logged today yet.</td></tr>
-                    </tbody>
-                </table>
+        <div class="md:col-span-2 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col">
+            <h2 class="text-xl font-bold text-red-400 border-b border-gray-800 pb-3 mb-4">Live Console Logs & Errors</h2>
+            <div id="debug-console" class="bg-gray-950 rounded-xl p-4 font-mono text-xs text-green-400 overflow-y-auto flex-1 min-h-[250px] border border-gray-800 space-y-1">
+                <p class="text-gray-500">// System Diagnostic Logger Initialized...</p>
             </div>
         </div>
     </div>
 
     <script>
-        // FIXED: Removed the "/rest/v1/" suffix from the base URL path
+        // On-screen console interceptor to print errors directly onto your phone screen
+        const debugConsole = document.getElementById('debug-console');
+        function logDebug(message, isError = false) {
+            const p = document.createElement('p');
+            p.className = isError ? "text-red-400 font-bold bg-red-950/20 p-1 rounded" : "text-emerald-400";
+            p.innerText = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugConsole.appendChild(p);
+            debugConsole.scrollTop = debugConsole.scrollHeight;
+        }
+
+        // Intercept global uncaught script errors
+        window.onerror = function(message, source, lineno, colno, error) {
+            logDebug(`CRASH ERROR: ${message} at line ${lineno}:${colno}`, true);
+            return false;
+        };
+
+        logDebug("Initializing core variables...");
+        
         const SUPABASE_URL = "https://bedwcfrjtafebpwqtwrh.supabase.co";
         const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlZHdjZnJqdGFmZWJwd3F0d3JoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0MTg3MjEsImV4cCI6MjA5NDk5NDcyMX0.y1d64jhCEXE_BU41x5u2ADYUmSGDPWj7yDOGUW6wL9g";
-        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        let supabase = null;
+
+        try {
+            logDebug("Verifying Supabase SDK window object configuration...");
+            // Detect if the CDN library file loaded successfully or got blocked by the network
+            if (typeof supabase === 'undefined' && typeof window.supabase === 'undefined' && typeof window.Supabase === 'undefined') {
+                logDebug("CRITICAL: The Supabase SDK script library failed to load from the CDN entirely!", true);
+            } else {
+                const clientCreator = window.supabase?.createClient || window.Supabase?.createClient;
+                if (clientCreator) {
+                    supabase = clientCreator(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    logDebug("✅ Supabase secure client connection built successfully!");
+                } else {
+                    logDebug("CRITICAL: Supabase script exists but createClient method is missing.", true);
+                }
+            }
+        } catch (e) {
+            logDebug(`CRITICAL CORE CRASH: ${e.message}`, true);
+        }
 
         const activateBtn = document.getElementById('activate-btn');
         const scanBox = document.getElementById('scan-box');
         const scanMessage = document.getElementById('scan-message');
-        const ledgerRows = document.getElementById('ledger-rows');
 
-        // Initial launch load
-        fetchTodayLedger();
+        // Check if browser recognizes Web NFC framework immediately on load
+        if (!('NDEFReader' in window)) {
+            logDebug("WARNING: 'NDEFReader' is completely missing in this browser's window scope! Check HTTPS or chrome://flags configuration.", true);
+        } else {
+            logDebug("✅ Hardware link verified: NDEFReader is available in browser.");
+        }
 
-        // 1. NFC Hardware Scanner Execution Loop
         activateBtn.addEventListener('click', async () => {
-    if ('NDEFReader' in window) {
-        try {
-            const ndef = new NDEFReader();
-            // This line triggers the browser's native permission prompt alert!
-            await ndef.scan(); 
+            logDebug("User clicked 'Activate NFC Antenna' button.");
             
+            // Force text modification immediately upon touch engagement
             updateTerminalUI("Waiting for Card Tap...", "bg-blue-950/40", "border-blue-500/50", "text-blue-400");
             activateBtn.style.display = 'none';
-            
-            // ... rest of your reader listener code stays same ...
+            logDebug("Terminal interface updated to scan layout stance.");
 
-        } catch (err) { 
-            // THIS WILL POP UP AND TELL US THE EXACT REASON IN PLAIN ENGLISH
-            alert(`CRITICAL ERROR: Antenna failed to initialize. Reason: ${err.message}`); 
-        }
-    } else { 
-        alert("CRITICAL ERROR: Your browser completely blocks NDEFReader. Check HTTPS or chrome://flags."); 
-    }
-});
+            if ('NDEFReader' in window) {
+                try {
+                    logDebug("Requesting hardware radio connection from Android kernel...");
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+                    logDebug("📡 NFC Antenna running in background thread. Ready to receive chip waves!");
 
-        // 2. Fetch data records and display neatly inside the Admin Table grid
-        async function fetchTodayLedger() {
-            let { data, error } = await supabase
-                .from('attendance_tracker')
-                .select(`
-                    hours_worked, attendance_status, punch_in, punch_out, emp_code,
-                    employees ( emp_name )
-                `)
-                .eq('work_date', new Date().toISOString().split('T')[0]);
+                    ndef.addEventListener("reading", async ({ serialNumber }) => {
+                        logDebug(`🎯 Physical Card Detected! UID Captured: ${serialNumber}`);
+                        updateTerminalUI(`Processing: ${serialNumber}`, "bg-yellow-950/40", "border-yellow-500/50", "text-yellow-400");
+                        
+                        if (!supabase) {
+                            logDebug("Transaction Aborted: Supabase database client instance is null.", true);
+                            updateTerminalUI("Error: Database link dead", "bg-red-950/40", "border-red-500/50", "text-red-400");
+                            return;
+                        }
 
-            if (error) {
-                console.error("Fetch Error:", error);
-                return;
+                        logDebug("Firing network RPC call to database: record_nfc_tap...");
+                        const { error } = await supabase.rpc('record_nfc_tap', { card_uid: serialNumber });
+
+                        if (error) {
+                            logDebug(`Database processing rejected: ${error.message}`, true);
+                            updateTerminalUI(`Error: ${error.message}`, "bg-red-950/40", "border-red-500/50", "text-red-400");
+                        } else {
+                            logDebug("🎉 Database successfully computed shift records!");
+                            updateTerminalUI("✅ Tap Registered!", "bg-emerald-950/40", "border-emerald-500/50", "text-emerald-400");
+                            triggerBeep();
+                        }
+                        
+                        setTimeout(() => {
+                            updateTerminalUI("Ready for next employee...", "bg-blue-950/20", "border-blue-500/30", "text-blue-400");
+                        }, 2500);
+                    });
+
+                } catch (err) { 
+                    activateBtn.style.display = 'block';
+                    updateTerminalUI("Terminal offline", "bg-gray-950", "border-gray-800", "text-gray-500");
+                    logDebug(`Hardware Activation Crashed: ${err.message}`, true);
+                }
+            } else {
+                logDebug("Execution stopped: NDEFReader missing during event execution handler context.", true);
             }
-
-            if(!data || data.length === 0) return;
-            
-            const emptyState = document.getElementById('empty-state');
-            if (emptyState) emptyState.remove();
-            
-            ledgerRows.innerHTML = '';
-
-            data.forEach(row => {
-                const inTime = row.punch_in ? new Date(row.punch_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--';
-                const outTime = row.punch_out ? new Date(row.punch_out).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--';
-                
-                let statusColor = "text-yellow-400 bg-yellow-500/10 border-yellow-500/20";
-                if(row.attendance_status === "Full Day") statusColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
-                if(row.attendance_status === "Half Day") statusColor = "text-orange-400 bg-orange-500/10 border-orange-500/20";
-
-                ledgerRows.innerHTML += `
-                    <tr class="hover:bg-gray-900/40 transition-colors">
-                        <td class="py-3.5 px-4 font-semibold">${row.employees?.emp_name || 'Unknown'}</td>
-                        <td class="py-3.5 px-4 font-mono text-xs text-gray-400">${row.emp_code}</td>
-                        <td class="py-3.5 px-4 text-gray-300">${inTime}</td>
-                        <td class="py-3.5 px-4 text-gray-300">${outTime}</td>
-                        <td class="py-3.5 px-4 font-mono font-medium">${row.hours_worked || '0'} hrs</td>
-                        <td class="py-3.5 px-4 text-right">
-                            <span class="px-2.5 py-1 text-xs font-bold rounded-md border ${statusColor}">${row.attendance_status}</span>
-                        </td>
-                    </tr>
-                `;
-            });
-        }
+        });
 
         function updateTerminalUI(msg, bg, border, text) {
             scanMessage.innerText = msg;
@@ -140,11 +146,13 @@
         }
 
         function triggerBeep() {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            osc.connect(ctx.destination);
-            osc.frequency.setValueAtTime(950, ctx.currentTime);
-            osc.start(); osc.stop(ctx.currentTime + 0.15);
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                osc.connect(ctx.destination);
+                osc.frequency.setValueAtTime(950, ctx.currentTime);
+                osc.start(); osc.stop(ctx.currentTime + 0.15);
+            } catch(e) {}
         }
     </script>
 </body>
