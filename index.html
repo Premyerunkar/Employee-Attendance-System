@@ -11,7 +11,6 @@
 
     <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        <!-- LEFT PANEL: The Scanner Hardware Interface -->
         <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col justify-between">
             <div>
                 <h2 class="text-xl font-bold border-b border-gray-800 pb-3 mb-4 text-blue-400">Gate Terminal</h2>
@@ -27,7 +26,6 @@
             </button>
         </div>
 
-        <!-- RIGHT PANEL: The Real-time Admin Live Dashboard Monitor -->
         <div class="md:col-span-2 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
             <div class="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
                 <h2 class="text-xl font-bold text-emerald-400">Live Attendance Ledger</h2>
@@ -47,7 +45,6 @@
                         </tr>
                     </thead>
                     <tbody id="ledger-rows" class="divide-y divide-gray-800/50">
-                        <!-- Dynamic real-time data will populate here -->
                         <tr id="empty-state"><td colspan="6" class="text-center py-8 text-gray-600">No taps logged today yet.</td></tr>
                     </tbody>
                 </table>
@@ -56,8 +53,8 @@
     </div>
 
     <script>
-        // Config Setup (Replace with your actual Supabase credentials)
-        const SUPABASE_URL = "https://bedwcfrjtafebpwqtwrh.supabase.co/rest/v1/";
+        // FIXED: Removed the "/rest/v1/" suffix from the base URL path
+        const SUPABASE_URL = "https://bedwcfrjtafebpwqtwrh.supabase.co";
         const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlZHdjZnJqdGFmZWJwd3F0d3JoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0MTg3MjEsImV4cCI6MjA5NDk5NDcyMX0.y1d64jhCEXE_BU41x5u2ADYUmSGDPWj7yDOGUW6wL9g";
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -89,10 +86,9 @@
                         } else {
                             updateTerminalUI("✅ Tap Registered!", "bg-emerald-950/40", "border-emerald-500/50", "text-emerald-400");
                             triggerBeep();
-                            fetchTodayLedger(); // Refresh display grid instantly
+                            fetchTodayLedger(); 
                         }
                         
-                        // Revert box background back to scan stance look after 2.5 seconds
                         setTimeout(() => {
                             updateTerminalUI("Ready for next employee...", "bg-blue-950/20", "border-blue-500/30", "text-blue-400");
                         }, 2500);
@@ -112,10 +108,16 @@
                 `)
                 .eq('work_date', new Date().toISOString().split('T')[0]);
 
-            if (error) return;
+            if (error) {
+                console.error("Fetch Error:", error);
+                return;
+            }
 
-            if(data.length === 0) return;
-            document.getElementById('empty-state')?.remove();
+            if(!data || data.length === 0) return;
+            
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) emptyState.remove();
+            
             ledgerRows.innerHTML = '';
 
             data.forEach(row => {
