@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Attendance & Shift Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-white min-h-screen font-sans p-6">
+
+    <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <!-- LEFT PANEL: The Scanner Hardware Interface -->
+        <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col justify-between">
+            <div>
+                <h2 class="text-xl font-bold border-b border-gray-800 pb-3 mb-4 text-blue-400">Gate Terminal</h2>
+                <p class="text-sm text-gray-400 mb-4">Run this section on the phone placed at your gate entrance.</p>
+                
+                <div id="scan-box" class="bg-gray-950 border-2 border-dashed border-gray-800 rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[200px] transition-all duration-300">
+                    <p id="scan-message" class="text-gray-500 font-medium">Terminal offline</p>
+                </div>
+            </div>
+            
+            <button id="activate-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition-all mt-4">
+                Activate NFC Antenna
+            </button>
+        </div>
+
+        <!-- RIGHT PANEL: The Real-time Admin Live Dashboard Monitor -->
+        <div class="md:col-span-2 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
+            <div class="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
+                <h2 class="text-xl font-bold text-emerald-400">Live Attendance Ledger</h2>
+                <span class="bg-gray-800 text-xs px-2.5 py-1 rounded-full text-gray-400 font-mono">Today's Logs</span>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="text-gray-500 border-b border-gray-800 uppercase text-[11px] tracking-wider">
+                            <th class="py-3 px-4">Employee</th>
+                            <th class="py-3 px-4">Code</th>
+                            <th class="py-3 px-4">Punch In</th>
+                            <th class="py-3 px-4">Punch Out</th>
+                            <th class="py-3 px-4">Hours</th>
+                            <th class="py-3 px-4 text-right">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ledger-rows" class="divide-y divide-gray-800/50">
+                        <!-- Dynamic real-time data will populate here -->
+                        <tr id="empty-state"><td colspan="6" class="text-center py-8 text-gray-600">No taps logged today yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Config Setup (Replace with your actual Supabase credentials)
+        const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";
+        const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        const activateBtn = document.getElementById('activate-btn');
+        const scanBox = document.getElementById('scan-box');
+        const scanMessage = document.getElementById('scan-message');
+        const ledgerRows = document.getElementById('ledger-rows');
+
+        // Initial launch load
+        fetchTodayLedger();
+
+        // 1. NFC Hardware Scanner Execution Loop
+        activateBtn.addEventListener('click', async () => {
+            if ('NDEFReader' in window) {
+                try {
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+                    
+                    updateTerminalUI("Waiting for Card Tap...", "bg-blue-950/40", "border-blue-500/50", "text-blue-400");
+                    activateBtn.style.display = 'none';
+
+                    ndef.addEventListener("reading", async ({ serialNumber }) => {
+                        updateTerminalUI(`Processing: ${serialNumber}`, "bg-yellow-950/40", "border-yellow-500/50", "text-yellow-400");
+                        
+                        const { error } = await supabase.rpc('record_nfc_tap', { card_uid: serialNumber });
+
+                        if (error) {
+                            updateTerminalUI(`Error: ${error.message}`, "bg-red-950/40", "border-red-500/50", "text-red-400");
+                        } else {
+                            updateTerminalUI("✅ Tap Registered!", "bg-emerald-950/40", "border-emerald-500/50", "text-emerald-400");
+                            triggerBeep();
+                            fetchTodayLedger(); // Refresh display grid instantly
+                        }
+                        
+                        // Revert box background back to scan stance look after 2.5 seconds
+                        setTimeout(() => {
+                            updateTerminalUI("Ready for next employee...", "bg-blue-950/20", "border-blue-500/30", "text-blue-400");
+                        }, 2500);
+                    });
+
+                } catch (err) { alert(`Antenna failed: ${err}`); }
+            } else { alert("NFC API not supported. Use Google Chrome on an Android mobile device."); }
+        });
+
+        // 2. Fetch data records and display neatly inside the Admin Table grid
+        async function fetchTodayLedger() {
+            let { data, error } = await supabase
+                .from('attendance_tracker')
+                .select(`
+                    hours_worked, attendance_status, punch_in, punch_out, emp_code,
+                    employees ( emp_name )
+                `)
+                .eq('work_date', new Date().toISOString().split('T')[0]);
+
+            if (error) return;
+
+            if(data.length === 0) return;
+            document.getElementById('empty-state')?.remove();
+            ledgerRows.innerHTML = '';
+
+            data.forEach(row => {
+                const inTime = row.punch_in ? new Date(row.punch_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--';
+                const outTime = row.punch_out ? new Date(row.punch_out).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--';
+                
+                let statusColor = "text-yellow-400 bg-yellow-500/10 border-yellow-500/20";
+                if(row.attendance_status === "Full Day") statusColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+                if(row.attendance_status === "Half Day") statusColor = "text-orange-400 bg-orange-500/10 border-orange-500/20";
+
+                ledgerRows.innerHTML += `
+                    <tr class="hover:bg-gray-900/40 transition-colors">
+                        <td class="py-3.5 px-4 font-semibold">${row.employees?.emp_name || 'Unknown'}</td>
+                        <td class="py-3.5 px-4 font-mono text-xs text-gray-400">${row.emp_code}</td>
+                        <td class="py-3.5 px-4 text-gray-300">${inTime}</td>
+                        <td class="py-3.5 px-4 text-gray-300">${outTime}</td>
+                        <td class="py-3.5 px-4 font-mono font-medium">${row.hours_worked || '0'} hrs</td>
+                        <td class="py-3.5 px-4 text-right">
+                            <span class="px-2.5 py-1 text-xs font-bold rounded-md border ${statusColor}">${row.attendance_status}</span>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function updateTerminalUI(msg, bg, border, text) {
+            scanMessage.innerText = msg;
+            scanMessage.className = `font-bold ${text}`;
+            scanBox.className = `border-2 border-solid rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[200px] transition-all duration-200 ${bg} ${border}`;
+        }
+
+        function triggerBeep() {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            osc.connect(ctx.destination);
+            osc.frequency.setValueAtTime(950, ctx.currentTime);
+            osc.start(); osc.stop(ctx.currentTime + 0.15);
+        }
+    </script>
+</body>
+</html>
